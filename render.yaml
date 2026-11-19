@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: stanbic-mock
+    runtime: node
+    plan: free
+    buildCommand: "true"
+    startCommand: node server.js
+    healthCheckPath: /__mock/health
+    envVars:
+      - key: MOCK_ADMIN_TOKEN
+        generateValue: true

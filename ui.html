@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stanbic mock · settings</title>
+<style>
+  :root {
+    --bg: #f4f6f5; --card: #fff; --ink: #102a26; --muted: #5d6c69; --line: #dde5e2;
+    --green: #00875f; --green-soft: #e3f4ee; --red: #b3261e; --red-soft: #fbe9e7;
+    --amber: #8a5a00; --amber-soft: #fff4dc; --radius: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-size: 14px; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--ink); color: #fff; padding: 14px 24px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  header label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #cfe0dc; }
+  header input { width: 80px; }
+  .saved { font-size: 12px; color: #9fd8c4; min-width: 60px; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 20px; padding: 20px 24px; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 4px 0 10px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+  .card.changed { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber) inset; }
+  .card h3 { margin: 0; font-size: 15px; }
+  .route { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--muted); margin: 3px 0 2px; word-break: break-all; }
+  .used { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .row label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  select, input, textarea, button { font: inherit; color: inherit; }
+  select, input[type=number], input[type=text] { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: #fff; }
+  select { flex: 1; min-width: 0; }
+  textarea { width: 100%; min-height: 150px; border: 1px solid var(--line); border-radius: 8px; padding: 8px;
+    font-family: ui-monospace, Menlo, monospace; font-size: 12px; margin-top: 8px; resize: vertical; }
+  textarea.invalid { border-color: var(--red); }
+  .help { font-size: 12px; background: var(--green-soft); color: #0a5a42; border-radius: 8px; padding: 7px 9px; margin-top: 8px; }
+  .help.warn { background: var(--amber-soft); color: var(--amber); }
+  button { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button.primary { background: var(--green); border-color: var(--green); color: #fff; }
+  button.danger { color: var(--red); }
+  header button { background: transparent; color: #fff; border-color: #3d5a55; }
+  .holder { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+  .holder input { width: 100%; }
+  .log { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; position: sticky; top: 76px; }
+  .log-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .log-list { max-height: calc(100vh - 150px); overflow: auto; }
+  .entry { border-bottom: 1px solid var(--line); padding: 9px 14px; cursor: pointer; }
+  .entry:hover { background: #fafcfb; }
+  .entry .top { display: flex; gap: 8px; align-items: center; }
+  .badge { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; background: var(--green-soft); color: #0a5a42; }
+  .badge.err { background: var(--red-soft); color: var(--red); }
+  .entry .name { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .entry .meta { font-size: 11.5px; color: var(--muted); }
+  .entry pre { display: none; background: #f6f8f7; border-radius: 8px; padding: 8px; font-size: 11.5px; overflow: auto; max-height: 260px; margin: 8px 0 0; }
+  .entry.open pre { display: block; }
+  .empty { padding: 24px 14px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Stanbic mock</h1>
+  <label>Delay for every response <input id="globalDelay" type="number" min="0" step="250" placeholder="0"> ms</label>
+  <span class="saved" id="saved"></span>
+  <span class="spacer"></span>
+  <button id="allHappy">Everything happy path</button>
+  <button id="export">Export</button>
+  <button id="importBtn">Import</button>
+  <input id="importFile" type="file" accept="application/json" hidden>
+  <button id="reset">Reset to defaults</button>
+</header>
+<main>
+  <section>
+    <h2>Endpoints</h2>
+    <div class="grid" id="endpoints"></div>
+
+    <h2 style="margin-top:22px">Card holder (linking a branch-issued card)</h2>
+    <div class="card">
+      <div class="used">Used by the card holder lookup's happy path. Set it to your test user's KYC names (or NIN as ID value) so the card "belongs" to them.</div>
+      <div class="holder">
+        <label>First name<input id="hFirst" type="text"></label>
+        <label>Last name<input id="hLast" type="text"></label>
+        <label>ID value (NIN)<input id="hId" type="text" placeholder="optional"></label>
+      </div>
+    </div>
+  </section>
+
+  <aside class="log">
+    <div class="log-head">
+      <strong>Requests</strong>
+      <span><span class="meta" id="logCount"></span> <button id="clearLogs">Clear</button></span>
+    </div>
+    <div class="log-list" id="logs"><div class="empty">No requests yet. Use the app and they'll show here.</div></div>
+  </aside>
+</main>
+
+<script>
+let state = null;
+let lastLogId = 0;
+let saveTimer = null;
+
+const $ = id => document.getElementById(id);
+const api = (path, options = {}) =>
+  fetch(path, {headers: {'Content-Type': 'application/json'}, ...options}).then(r => {
+    if (!r.ok) throw new Error(`${r.status}`);
+    return r.json();
+  });
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const flashSaved = text => {
+  $('saved').textContent = text;
+  clearTimeout(flashSaved.t);
+  flashSaved.t = setTimeout(() => ($('saved').textContent = ''), 1500);
+};
+
+const save = () => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      const result = await api('/__mock/api/config', {method: 'PUT', body: JSON.stringify(state.config)});
+      state.config = result.config;
+      flashSaved('Saved');
+    } catch (e) {
+      flashSaved('Save failed');
+    }
+  }, 350);
+};
+
+const renderEndpoints = () => {
+  const container = $('endpoints');
+  container.innerHTML = '';
+  for (const endpoint of state.endpoints) {
+    const settings = state.config.endpoints[endpoint.key];
+    const card = document.createElement('div');
+    card.className = 'card' + (settings.mode === 'auto' ? '' : ' changed');
+    const options = [
+      `<option value="auto">Happy path (test values apply)</option>`,
+      ...endpoint.scenarios.filter(s => s.key !== 'happy').map(s => `<option value="${s.key}">${escapeHtml(s.label)}</option>`),
+      `<option value="happy">${escapeHtml(endpoint.scenarios.find(s => s.key === 'happy').label)} (always)</option>`,
+      `<option value="custom">Custom response…</option>`,
+    ].join('');
+    card.innerHTML = `
+      <h3>${escapeHtml(endpoint.name)}</h3>
+      <div class="route">${endpoint.method} ${escapeHtml(endpoint.path)}</div>
+      <div class="used">${escapeHtml(endpoint.usedBy)}</div>
+      <div class="row">
+        <select data-role="mode">${options}</select>
+        <label>Delay <input data-role="delay" type="number" min="0" step="250" placeholder="0" style="width:80px"> ms</label>
+      </div>
+      <div data-role="help" class="help"></div>
+      <div data-role="custom" hidden>
+        <div class="row"><label>HTTP status</label><input data-role="status" type="number" min="100" max="599" style="width:90px"></div>
+        <textarea data-role="body" spellcheck="false"></textarea>
+      </div>`;
+    const mode = card.querySelector('[data-role=mode]');
+    const delay = card.querySelector('[data-role=delay]');
+    const help = card.querySelector('[data-role=help]');
+    const custom = card.querySelector('[data-role=custom]');
+    const status = card.querySelector('[data-role=status]');
+    const body = card.querySelector('[data-role=body]');
+
+    const refresh = () => {
+      const m = settings.mode;
+      custom.hidden = m !== 'custom';
+      card.classList.toggle('changed', m !== 'auto');
+      help.classList.toggle('warn', m !== 'auto' && m !== 'happy');
+      help.hidden = m === 'custom';
+      help.textContent = m === 'auto'
+        ? endpoint.autoHelp
+        : m === 'happy' ? 'Always the happy path, whatever is sent.'
+        : 'Every request gets this response until you change it back.';
+    };
+
+    mode.value = settings.mode;
+    delay.value = settings.delayMs || '';
+    status.value = settings.custom.status;
+    body.value = settings.custom.body;
+    refresh();
+
+    mode.addEventListener('change', () => { settings.mode = mode.value; refresh(); save(); });
+    delay.addEventListener('input', () => { settings.delayMs = Number(delay.value) || 0; save(); });
+    status.addEventListener('input', () => { settings.custom.status = Number(status.value) || 200; save(); });
+    body.addEventListener('input', () => {
+      settings.custom.body = body.value;
+      try { JSON.parse(body.value); body.classList.remove('invalid'); } catch { body.classList.add('invalid'); }
+      save();
+    });
+    container.appendChild(card);
+  }
+};
+
+const renderHolder = () => {
+  const holder = state.config.cardHolder;
+  $('hFirst').value = holder.firstName || '';
+  $('hLast').value = holder.lastName || '';
+  $('hId').value = holder.idValue || '';
+};
+
+const renderAll = () => {
+  $('globalDelay').value = state.config.delayMs || '';
+  renderEndpoints();
+  renderHolder();
+};
+
+const load = async () => {
+  state = await api('/__mock/api/state');
+  renderAll();
+};
+
+const addLogs = entries => {
+  if (!entries.length) return;
+  const list = $('logs');
+  list.querySelector('.empty')?.remove();
+  for (const entry of entries) {
+    lastLogId = Math.max(lastLogId, entry.id);
+    const el = document.createElement('div');
+    el.className = 'entry';
+    const ok = entry.status < 400 && !(entry.response && entry.response.message === 'Request Failed');
+    el.innerHTML = `
+      <div class="top">
+        <span class="badge ${ok ? '' : 'err'}">${entry.status}</span>
+        <span class="name">${escapeHtml(entry.endpoint)}</span>
+        <span class="meta">${new Date(entry.time).toLocaleTimeString()}</span>
+      </div>
+      <div class="meta">${entry.method} ${escapeHtml(entry.path)} · ${escapeHtml(entry.mode)} · ${entry.ms} ms</div>
+      <pre>Request\n${escapeHtml(JSON.stringify(entry.request, null, 2))}\n\nResponse\n${escapeHtml(typeof entry.response === 'string' ? entry.response : JSON.stringify(entry.response, null, 2))}</pre>`;
+    el.addEventListener('click', () => el.classList.toggle('open'));
+    list.prepend(el);
+  }
+  while (list.children.length > 100) list.lastChild.remove();
+  $('logCount').textContent = `${list.querySelectorAll('.entry').length} shown`;
+};
+
+const pollLogs = async () => {
+  try {
+    const {logs} = await api(`/__mock/api/logs?since=${lastLogId}`);
+    addLogs(logs);
+  } catch { /* server restarting */ }
+  setTimeout(pollLogs, 2000);
+};
+
+$('globalDelay').addEventListener('input', e => { state.config.delayMs = Number(e.target.value) || 0; save(); });
+['hFirst', 'hLast', 'hId'].forEach(id => $(id).addEventListener('input', () => {
+  state.config.cardHolder = {firstName: $('hFirst').value, lastName: $('hLast').value, idValue: $('hId').value};
+  save();
+}));
+$('allHappy').addEventListener('click', () => {
+  for (const key of Object.keys(state.config.endpoints)) {
+    state.config.endpoints[key].mode = 'auto';
+    state.config.endpoints[key].delayMs = 0;
+  }
+  state.config.delayMs = 0;
+  renderAll();
+  save();
+});
+$('reset').addEventListener('click', async () => {
+  if (!confirm('Reset every endpoint, delay and the card holder to the defaults?')) return;
+  const result = await api('/__mock/api/reset', {method: 'POST'});
+  state.config = result.config;
+  renderAll();
+  flashSaved('Reset');
+});
+$('export').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(state.config, null, 2)], {type: 'application/json'});
+  const link = Object.assign(document.createElement('a'), {href: URL.createObjectURL(blob), download: 'stanbic-mock-config.json'});
+  link.click();
+  URL.revokeObjectURL(link.href);
+});
+$('importBtn').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const config = JSON.parse(await file.text());
+    const result = await api('/__mock/api/config', {method: 'PUT', body: JSON.stringify(config)});
+    state.config = result.config;
+    renderAll();
+    flashSaved('Imported');
+  } catch {
+    alert('That file is not a valid mock config.');
+  }
+  e.target.value = '';
+});
+$('clearLogs').addEventListener('click', async () => {
+  await api('/__mock/api/logs', {method: 'DELETE'});
+  $('logs').innerHTML = '<div class="empty">No requests yet.</div>';
+  $('logCount').textContent = '';
+});
+
+load().then(pollLogs);
+</script>
+</body>
+</html>

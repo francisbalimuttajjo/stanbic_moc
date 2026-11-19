@@ -1,0 +1,13 @@
+{
+  "name": "stanbic-mock",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Configurable Stanbic API mock for Vaulit development",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
