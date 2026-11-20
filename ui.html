@@ -116,6 +116,9 @@
           <select id="payOutcome"><option value="success">Success</option><option value="failed">Failed</option></select></label>
         <label>When a payment request arrives
           <select id="payOnNew"><option value="accept">Accept (pending)</option><option value="reject">Reject (400)</option><option value="server_error">Server error (500)</option></select></label>
+        <label>Phone number check
+          <select id="payMsisdn"><option value="valid">Valid (returns the name below)</option><option value="invalid">Invalid number</option></select></label>
+        <label>Name returned for the number<input id="payName" type="text" placeholder="MOCK CUSTOMER"></label>
       </div>
       <div class="used" style="margin:12px 0 0">Webhook targets: your API's base URL. Each completed payment is sent to every ticked one.</div>
       <div class="targets" id="targets"></div>
@@ -394,6 +397,8 @@ const renderPaySettings = () => {
   $('payOutcome').value = p.autoOutcome;
   $('payOnNew').value = p.onNewRequest;
   $('checkoutBase').value = p.checkoutBaseUrl || '';
+  $('payMsisdn').value = p.msisdnCheck;
+  $('payName').value = p.customerName || '';
   const box = $('targets');
   box.innerHTML = '';
   p.webhookTargets.forEach((t, i) => {
@@ -414,6 +419,8 @@ $('payDelay').addEventListener('input', e => { paySettings().autoDelaySec = Numb
 $('payOutcome').addEventListener('change', e => { paySettings().autoOutcome = e.target.value; save(); });
 $('payOnNew').addEventListener('change', e => { paySettings().onNewRequest = e.target.value; save(); });
 $('checkoutBase').addEventListener('input', e => { paySettings().checkoutBaseUrl = e.target.value.trim(); save(); });
+$('payMsisdn').addEventListener('change', e => { paySettings().msisdnCheck = e.target.value; save(); });
+$('payName').addEventListener('input', e => { paySettings().customerName = e.target.value; save(); });
 $('addTarget').addEventListener('click', () => {
   if (paySettings().webhookTargets.length >= 5) return;
   paySettings().webhookTargets.push({url: '', enabled: true});

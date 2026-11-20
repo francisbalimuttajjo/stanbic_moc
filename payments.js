@@ -51,6 +51,8 @@ const defaultPaymentsConfig = () => ({
     {url: '', enabled: false},
   ],
   checkoutBaseUrl: '',
+  msisdnCheck: 'valid', // 'valid' | 'invalid'
+  customerName: 'MOCK CUSTOMER',
 });
 
 const normalizePaymentsConfig = raw => {
@@ -65,6 +67,8 @@ const normalizePaymentsConfig = raw => {
       .slice(0, 5)
       .map(t => ({url: String(t?.url || '').trim().replace(/\/+$/, ''), enabled: Boolean(t?.enabled)})),
     checkoutBaseUrl: String(merged.checkoutBaseUrl || '').trim().replace(/\/+$/, ''),
+    msisdnCheck: merged.msisdnCheck === 'invalid' ? 'invalid' : 'valid',
+    customerName: String(merged.customerName ?? 'MOCK CUSTOMER'),
   };
 };
 
@@ -192,6 +196,15 @@ const createPayments = ({getConfig, addLog}) => {
         customer_reference: payment.customerReference,
         internal_reference: payment.internalReference,
       }];
+    }
+
+    // Phone number check before a mobile money collection or payout (returns the account name).
+    if (route === 'POST /relworx/api/mobile-money/validate') {
+      const s = settings();
+      const invalid = s.msisdnCheck === 'invalid' || String(body.msisdn || '').endsWith('000');
+      return invalid
+        ? [200, {success: false, message: 'Invalid mobile money number (mock).'}]
+        : [200, {success: true, message: 'Valid number (mock).', customer_name: s.customerName || 'MOCK CUSTOMER'}];
     }
 
     const kind = ROUTES[route];

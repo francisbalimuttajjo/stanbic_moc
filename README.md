@@ -83,8 +83,9 @@ The mock also stands in for **Relworx**, the payment gateway, for the payment ca
 | `POST /api/visa/request-session` | Wallet top-ups by card (returns a checkout page link) | `/webhooks/relworx_visa_payment_requests` |
 | `POST /api/products/purchase` | Airtime, bills and other products | `/webhooks/relworx_product_purchase_requests` (with token and units) |
 | `GET /api/mobile-money/check-request-status` | The API's status check worker | none: answers `in_progress`, `success` or `failed` |
+| `POST /api/mobile-money/validate` | Phone number check before a top-up, withdrawal or card payment (returns the account name) | none |
 
-Product lists, product validation, phone number validation and the wallet balance check still go to the real Relworx.
+Product lists, product validation and the wallet balance check still go to the real Relworx.
 
 **In vaulit-web**, `RelworxServices::Config` sends those five calls to `http://localhost:4010/relworx` in development by default:
 
@@ -107,6 +108,7 @@ Settings:
 
 - **Completion:** *Manual* (the default) or *Automatic*, which completes each payment after N seconds with the outcome you choose.
 - **When a payment request arrives:** *Accept* (the default), *Reject (400)* or *Server error (500)*, to test a payment that fails to start.
+- **Phone number check:** *Valid* (returns the name you set, default `MOCK CUSTOMER`) or *Invalid number*. A number ending `000` is always invalid.
 - **Webhook targets:** your API's base URL, for example `http://localhost:3000` and your ngrok URL. Up to 5, each can be switched on or off. The local mock can reach both. The deployed mock can only reach a public URL (ngrok).
 - **Card checkout page address:** where the app opens the mock card checkout. By default it's this server as the API called it (`http://localhost:4010`), which works in the iOS simulator. For the Android emulator use `http://10.0.2.2:4010`, and for a real phone your ngrok or Render URL.
 
