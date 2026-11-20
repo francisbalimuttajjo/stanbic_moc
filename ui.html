@@ -132,6 +132,20 @@
     </div>
     <div class="pays" id="pays"></div>
 
+    <h2 style="margin-top:22px">Card registration (Stanbic customer)</h2>
+    <div class="card">
+      <div class="used">After the address step, the request waits for Stanbic, which can take days and may need a person. Move a user's request here. Issued and Failed run the API's real registration against this mock (the registration endpoint is switched to match); the other two only set the status. Sent to the first ticked webhook target. Pull to refresh in the app afterwards.</div>
+      <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:8px">
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)">User ID or email
+          <input id="regUser" type="text" placeholder="326 or someone@test.com"></label>
+        <button data-reg="awaiting_registration">Awaiting registration</button>
+        <button data-reg="registering">Registering</button>
+        <button data-reg="issued">Issued</button>
+        <button data-reg="failed">Failed</button>
+      </div>
+      <div class="used" id="regResult" style="margin:10px 0 0"></div>
+    </div>
+
     <h2 style="margin-top:22px">Stanbic endpoints</h2>
     <div class="grid" id="endpoints"></div>
 
@@ -492,6 +506,31 @@ const _renderAll = renderAll;
 renderAll = () => { _renderAll(); renderPaySettings(); };
 
 load().then(() => { renderPaySettings(); pollLogs(); pollPays(); });
+
+document.querySelectorAll('[data-reg]').forEach(button => {
+  button.addEventListener('click', async () => {
+    const outcome = button.dataset.reg;
+    const user = $('regUser').value.trim();
+    try { localStorage.setItem('mockRegUser', user); } catch {}
+    $('regResult').textContent = `Sending ${outcome}...`;
+    document.querySelectorAll('[data-reg]').forEach(b => (b.disabled = true));
+    try {
+      const r = await fetch('/__mock/api/card-registration', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user, outcome}),
+      });
+      const data = await r.json();
+      $('regResult').textContent = data.ok
+        ? `User ${data.user_id}, request ${data.request_id}: ${data.from} → ${data.to}${data.note ? ` (${data.note})` : ''}`
+        : `Failed: ${data.message}`;
+      if (['issued', 'failed'].includes(outcome)) load();
+    } catch (e) {
+      $('regResult').textContent = `Failed: ${e.message}`;
+    } finally {
+      document.querySelectorAll('[data-reg]').forEach(b => (b.disabled = false));
+    }
+  });
+});
+try { $('regUser').value = localStorage.getItem('mockRegUser') || ''; } catch {}
 </script>
 </body>
 </html>

@@ -595,6 +595,44 @@ const authorized = req => {
 
 const payments = createPayments({getConfig: () => config, addLog});
 
+// "Card registration" buttons: Stanbic registration is slow and can need a person,
+// so this lets you move a user's card issuance request on demand. For issued/failed
+// the registration scenario is set first, then the API's dev-only hook runs the real
+// registration, which calls back into this mock.
+const REGISTRATION_OUTCOMES = {issued: 'happy', failed: 'failed', registering: null, awaiting_registration: null};
+const simulateCardRegistration = async ({user, outcome}) => {
+  if (!String(user || '').trim()) return [400, {ok: false, message: 'Enter a user ID or email'}];
+  if (!(outcome in REGISTRATION_OUTCOMES)) return [400, {ok: false, message: `Unknown outcome ${outcome}`}];
+
+  const mode = REGISTRATION_OUTCOMES[outcome];
+  if (mode) saveConfig({...config, endpoints: {...config.endpoints, registration: {...config.endpoints.registration, mode}}});
+
+  const target = config.payments.webhookTargets.find(t => t.enabled && t.url);
+  if (!target) return [400, {ok: false, message: 'Tick a webhook target (your API address) in the Payments section'}];
+
+  const path = `${target.url}/__mock_hooks/card_registration`;
+  const request = {user: String(user).trim(), outcome};
+  let status;
+  let result;
+  try {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', Accept: 'application/json', 'ngrok-skip-browser-warning': 'true'},
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(90000),
+    });
+    status = response.status;
+    const text = await response.text();
+    try { result = JSON.parse(text); } catch { result = {ok: false, message: `API answered ${status} (is the dev-only route there?)`}; }
+    if (status === 404) result = {ok: false, message: 'API has no /__mock_hooks/card_registration route (development only)'};
+  } catch (error) {
+    status = 'error';
+    result = {ok: false, message: `Couldn't reach ${target.url}: ${error.cause?.code || error.name || error.message}`};
+  }
+  addLog({method: 'POST', path, endpoint: 'Card registration (simulated)', mode: 'webhook', status, request, response: result});
+  return [result.ok ? 200 : 422, result];
+};
+
 const handleAdmin = async (req, res, url, body) => {
   if (url.pathname === '/__mock/health') return send(res, 200, {ok: true, requests: logId, lastPerson: memory.lastPerson});
   if (!authorized(req)) {
@@ -621,6 +659,8 @@ const handleAdmin = async (req, res, url, body) => {
     case 'PUT /__mock/api/config':
       if (!body || typeof body !== 'object' || body.raw) return send(res, 400, {message: 'Expected a JSON config'});
       return send(res, 200, {config: saveConfig(body)});
+    case 'POST /__mock/api/card-registration':
+      return send(res, ...(await simulateCardRegistration(body || {})));
     case 'POST /__mock/api/reset':
       return send(res, 200, {config: saveConfig(defaultConfig())});
     case 'GET /__mock/api/logs': {
