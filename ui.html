@@ -178,8 +178,8 @@ const save = () => {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     try {
-      const result = await api('/__mock/api/config', {method: 'PUT', body: JSON.stringify(state.config)});
-      state.config = result.config;
+      // Keep editing the same objects: the controls hold references to them.
+      await api('/__mock/api/config', {method: 'PUT', body: JSON.stringify(state.config)});
       flashSaved('Saved');
     } catch (e) {
       flashSaved('Save failed');
@@ -425,6 +425,7 @@ $('addTarget').addEventListener('click', () => {
   if (paySettings().webhookTargets.length >= 5) return;
   paySettings().webhookTargets.push({url: '', enabled: true});
   renderPaySettings();
+  save();
 });
 $('clearPays').addEventListener('click', async () => { await api('/__mock/api/payments', {method: 'DELETE'}); renderPays([]); });
 
