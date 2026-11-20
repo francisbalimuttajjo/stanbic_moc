@@ -11,6 +11,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const {createPayments, defaultPaymentsConfig, normalizePaymentsConfig} = require('./payments');
 
 const PORT = Number(process.env.PORT || 4010);
 const CONFIG_PATH = process.env.MOCK_CONFIG_PATH || path.join(__dirname, 'config.json');
@@ -461,6 +462,7 @@ const sampleBody = {
 
 const defaultConfig = () => ({
   delayMs: 0,
+  payments: defaultPaymentsConfig(),
   cardHolder: {firstName: 'MOCK', lastName: 'HOLDER', idValue: ''},
   endpoints: Object.fromEntries(
     ENDPOINTS.map(e => {
@@ -494,6 +496,7 @@ const normalizeConfig = raw => {
   if (raw?.registration === 'fail' && !raw?.endpoints) config.endpoints.registration.mode = 'failed';
   if (raw?.kycUpload === 'fail' && !raw?.endpoints) config.endpoints.kyc_upload.mode = 'server_error';
   config.delayMs = Math.max(0, Number(config.delayMs) || 0);
+  config.payments = normalizePaymentsConfig(raw?.payments);
   delete config.registration;
   delete config.kycUpload;
   delete config.returnPassCode;
@@ -523,6 +526,16 @@ const saveConfig = next => {
 
 const logs = [];
 let logId = 0;
+
+const addLog = ({method, path, endpoint, mode, status, request, response, ms = 0}) => {
+  const entry = {
+    id: ++logId, time: new Date().toISOString(), method, path, endpoint, mode, status, ms,
+    request: trimForLog(request), response: trimForLog(response),
+  };
+  logs.push(entry);
+  if (logs.length > MAX_LOGS) logs.shift();
+  console.log(`[${entry.time.slice(11, 19)}] ${method} ${path} -> ${status} (${mode})`);
+};
 
 const respondFor = (endpoint, body) => {
   const settings = config.endpoints[endpoint.key];
@@ -580,13 +593,17 @@ const authorized = req => {
   return password === ADMIN_TOKEN;
 };
 
-const handleAdmin = (req, res, url, body) => {
+const payments = createPayments({getConfig: () => config, addLog});
+
+const handleAdmin = async (req, res, url, body) => {
   if (url.pathname === '/__mock/health') return send(res, 200, {ok: true, requests: logId, lastPerson: memory.lastPerson});
   if (!authorized(req)) {
     return send(res, 401, {message: 'Unauthorized'}, {'WWW-Authenticate': 'Basic realm="Stanbic mock"'});
   }
 
   const route = `${req.method} ${url.pathname.replace(/\/+$/, '') || '/'}`;
+  const paymentsResult = await payments.handleAdmin(route, url, body);
+  if (paymentsResult) return send(res, ...paymentsResult);
   switch (route) {
     case 'GET /__mock':
       return send(res, 200, UI_HTML);
@@ -621,13 +638,23 @@ const handleAdmin = (req, res, url, body) => {
 const server = http.createServer((req, res) => {
   let raw = '';
   req.on('data', chunk => (raw += chunk));
-  req.on('end', () => {
+  req.on('end', async () => {
     const url = new URL(req.url, `http://localhost:${PORT}`);
     const body = parseBody(raw, req.headers['content-type']);
 
     if (url.pathname === '/' && req.method === 'GET') return send(res, 302, '', {Location: '/__mock'});
     if (url.pathname === '/favicon.ico') return res.writeHead(204).end();
     if (url.pathname.startsWith('/__mock')) return handleAdmin(req, res, url, body);
+    if (await payments.handleCheckout(req, res, url, body)) return;
+
+    const gateway = payments.handleGateway(req, url, body);
+    if (gateway) {
+      send(res, ...gateway);
+      return addLog({
+        method: req.method, path: url.pathname + url.search, endpoint: `Relworx: ${url.pathname.replace('/relworx/api/', '')}`,
+        mode: config.payments.mode, status: gateway[0], request: body, response: gateway[1],
+      });
+    }
 
     const routeKey = `${req.method} ${url.pathname.replace(/\/+$/, '')}`;
     const endpoint = BY_ROUTE[routeKey];

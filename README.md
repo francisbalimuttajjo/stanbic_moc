@@ -72,7 +72,51 @@ For linking a card issued at a branch (not a Stanbic customer). The API checks t
 belongs to the user by NIN (ID value) against their KYC document number, or else by name.
 Set the **Card holder** fields to your test user's KYC names, or NIN.
 
-## 3. Walk-throughs
+## 3. Payments (Relworx mock)
+
+The mock also stands in for **Relworx**, the payment gateway, for the payment calls:
+
+| Vaulit API call | Used for | Webhook sent back |
+|---|---|---|
+| `POST /api/mobile-money/request-payment` | Card payments (service payments) and wallet top-ups by mobile money | `/webhooks/relworx_service_payments`, falling back to `/webhooks/relworx_mobile_money_requests` |
+| `POST /api/mobile-money/send-payment` | Wallet withdrawals to mobile money | `/webhooks/relworx_mobile_money_requests` |
+| `POST /api/visa/request-session` | Wallet top-ups by card (returns a checkout page link) | `/webhooks/relworx_visa_payment_requests` |
+| `POST /api/products/purchase` | Airtime, bills and other products | `/webhooks/relworx_product_purchase_requests` (with token and units) |
+| `GET /api/mobile-money/check-request-status` | The API's status check worker | none: answers `in_progress`, `success` or `failed` |
+
+Product lists, product validation, phone number validation and the wallet balance check still go to the real Relworx.
+
+**In vaulit-web**, `RelworxServices::Config` sends those five calls to `http://localhost:4010/relworx` in development by default:
+
+```bash
+bin/rails s                                         # payments go to the mock
+RELWORX_USE_REAL=1 bin/rails s                      # payments go to the real Relworx
+RELWORX_SERVER_URL=https://stanbic-mock.onrender.com/relworx bin/rails s   # the deployed mock
+```
+
+Sidekiq must be running: the API sends payments from background jobs.
+
+**On the settings page** (Payments section):
+
+1. Each payment the API starts appears as **pending**: amount, phone number, kind and references.
+2. Click **Success** or **Fail**, optionally with a message (and a token and units for products). The mock sends the webhook to every ticked **webhook target** and shows each result (✓ 200, or the error).
+3. The API updates the payment, and the app picks up the new status.
+4. **Resend webhook** sends it again, for example after starting your API.
+
+Settings:
+
+- **Completion:** *Manual* (the default) or *Automatic*, which completes each payment after N seconds with the outcome you choose.
+- **When a payment request arrives:** *Accept* (the default), *Reject (400)* or *Server error (500)*, to test a payment that fails to start.
+- **Webhook targets:** your API's base URL, for example `http://localhost:3000` and your ngrok URL. Up to 5, each can be switched on or off. The local mock can reach both. The deployed mock can only reach a public URL (ngrok).
+- **Card checkout page address:** where the app opens the mock card checkout. By default it's this server as the API called it (`http://localhost:4010`), which works in the iOS simulator. For the Android emulator use `http://10.0.2.2:4010`, and for a real phone your ngrok or Render URL.
+
+Card payments: the app opens the checkout page, which shows the amount with **Approve payment** and **Decline**. Either the page or the Success/Fail buttons complete it.
+
+Mobile money collections use the same Relworx endpoint for card payments and wallet top-ups, so the mock tries the service payments webhook first and falls back to the mobile money one. It remembers which worked for each Relworx account number, so later payments go straight to the right one. The first time, the API log shows one "invalid webhook references" error; that's expected.
+
+The mock keeps payments in memory: restarting it clears the list.
+
+## 4. Walk-throughs
 
 You need a test user with a KYC record and a successful card payment (that creates the
 card issuance request).
@@ -83,7 +127,7 @@ card issuance request).
 - **Not a Stanbic customer:** set the card holder to your user's name, choose not a Stanbic customer, and link a card ID such as `5555123`.
 - **Slow Stanbic:** set a delay of 3000 ms on one endpoint to check the app's loading states.
 
-## 4. Deploy it for free (Render)
+## 5. Deploy it for free (Render)
 
 Render's free web service runs this as is. Free services **sleep after 15 minutes without
 traffic** and take about a minute to wake on the next request. Their disk isn't kept, so
@@ -114,7 +158,7 @@ Things to know:
   deliberately if you want staging on the mock.
 - It's a public URL. Only ever send test data to it.
 
-## 5. Known API gaps the mock exposes
+## 6. Known API gaps the mock exposes
 
 Real behaviour in `self-card-onboarding-v2`, not mock bugs:
 

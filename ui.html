@@ -54,6 +54,26 @@
   .info pre { background: #f6f8f7; border-radius: 8px; padding: 8px; font-size: 11.5px; overflow: auto; max-height: 220px; margin: 0; }
   .info .fail { background: var(--red-soft); color: var(--red); border-radius: 8px; padding: 7px 9px; font-size: 12px; margin-top: 8px; }
   .info .svc { font-size: 11.5px; color: var(--muted); font-family: ui-monospace, Menlo, monospace; word-break: break-word; }
+  .pay-settings { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 16px; }
+  .pay-settings label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  .targets { display: grid; gap: 6px; margin-top: 10px; }
+  .targets .t { display: flex; gap: 8px; align-items: center; }
+  .targets input[type=text] { flex: 1; }
+  .pays { display: grid; gap: 10px; margin-top: 12px; }
+  .pay { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+  .pay.pending { border-color: var(--amber); }
+  .pay .top { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .pay .amount { font-weight: 600; font-size: 15px; }
+  .pay .meta { font-size: 12px; color: var(--muted); }
+  .pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
+  .pill.pending { background: var(--amber-soft); color: var(--amber); }
+  .pill.success { background: var(--green-soft); color: #0a5a42; }
+  .pill.failed { background: var(--red-soft); color: var(--red); }
+  .pay .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+  .pay .actions input { flex: 1; min-width: 140px; }
+  .hooks { margin-top: 8px; font-size: 12px; display: grid; gap: 3px; }
+  .hooks code { font-size: 11.5px; }
+  .ok-text { color: #0a5a42; } .bad-text { color: var(--red); }
   .holder { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
   .holder input { width: 100%; }
   .log { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; position: sticky; top: 76px; }
@@ -85,7 +105,31 @@
 </header>
 <main>
   <section>
-    <h2>Endpoints</h2>
+    <h2>Payments (Relworx mock)</h2>
+    <div class="card">
+      <div class="used">Mobile money collections and payouts, Visa card payments and product purchases from the Vaulit API land here as pending. Complete them to send the webhook back to the API, which updates the app.</div>
+      <div class="pay-settings">
+        <label>Completion
+          <select id="payMode"><option value="manual">Manual (click Success / Fail)</option><option value="auto">Automatic</option></select></label>
+        <label>Automatic: after (seconds)<input id="payDelay" type="number" min="0" step="1" placeholder="5"></label>
+        <label>Automatic: outcome
+          <select id="payOutcome"><option value="success">Success</option><option value="failed">Failed</option></select></label>
+        <label>When a payment request arrives
+          <select id="payOnNew"><option value="accept">Accept (pending)</option><option value="reject">Reject (400)</option><option value="server_error">Server error (500)</option></select></label>
+      </div>
+      <div class="used" style="margin:12px 0 0">Webhook targets: your API's base URL. Each completed payment is sent to every ticked one.</div>
+      <div class="targets" id="targets"></div>
+      <div class="row"><button id="addTarget">Add target</button></div>
+      <label class="row" style="flex-direction:column;align-items:stretch;gap:4px;font-size:12px;color:var(--muted)">Card checkout page address (optional; for a real phone or Android emulator, e.g. your ngrok URL or http://10.0.2.2:4010)
+        <input id="checkoutBase" type="text" placeholder="This server's address, as the API called it"></label>
+    </div>
+    <div class="row" style="justify-content:space-between;margin-top:14px">
+      <strong id="payCount">No payments yet</strong>
+      <button id="clearPays">Clear list</button>
+    </div>
+    <div class="pays" id="pays"></div>
+
+    <h2 style="margin-top:22px">Stanbic endpoints</h2>
     <div class="grid" id="endpoints"></div>
 
     <h2 style="margin-top:22px">Card holder (linking a branch-issued card)</h2>
@@ -248,7 +292,7 @@ const renderHolder = () => {
   $('hId').value = holder.idValue || '';
 };
 
-const renderAll = () => {
+let renderAll = () => {
   $('globalDelay').value = state.config.delayMs || '';
   renderEndpoints();
   renderHolder();
@@ -341,7 +385,105 @@ $('clearLogs').addEventListener('click', async () => {
   $('logCount').textContent = '';
 });
 
-load().then(pollLogs);
+// ---- Payments ----
+const paySettings = () => state.config.payments;
+const renderPaySettings = () => {
+  const p = paySettings();
+  $('payMode').value = p.mode;
+  $('payDelay').value = p.autoDelaySec;
+  $('payOutcome').value = p.autoOutcome;
+  $('payOnNew').value = p.onNewRequest;
+  $('checkoutBase').value = p.checkoutBaseUrl || '';
+  const box = $('targets');
+  box.innerHTML = '';
+  p.webhookTargets.forEach((t, i) => {
+    const row = document.createElement('div');
+    row.className = 't';
+    row.innerHTML = `<input type="checkbox"><input type="text" placeholder="http://localhost:3000 or https://your-ngrok-url"><button class="danger">Remove</button>`;
+    const [check, input, remove] = row.children;
+    check.checked = t.enabled;
+    input.value = t.url;
+    check.addEventListener('change', () => { t.enabled = check.checked; save(); });
+    input.addEventListener('input', () => { t.url = input.value.trim(); save(); });
+    remove.addEventListener('click', () => { p.webhookTargets.splice(i, 1); renderPaySettings(); save(); });
+    box.appendChild(row);
+  });
+};
+$('payMode').addEventListener('change', e => { paySettings().mode = e.target.value; save(); });
+$('payDelay').addEventListener('input', e => { paySettings().autoDelaySec = Number(e.target.value) || 0; save(); });
+$('payOutcome').addEventListener('change', e => { paySettings().autoOutcome = e.target.value; save(); });
+$('payOnNew').addEventListener('change', e => { paySettings().onNewRequest = e.target.value; save(); });
+$('checkoutBase').addEventListener('input', e => { paySettings().checkoutBaseUrl = e.target.value.trim(); save(); });
+$('addTarget').addEventListener('click', () => {
+  if (paySettings().webhookTargets.length >= 5) return;
+  paySettings().webhookTargets.push({url: '', enabled: true});
+  renderPaySettings();
+});
+$('clearPays').addEventListener('click', async () => { await api('/__mock/api/payments', {method: 'DELETE'}); renderPays([]); });
+
+const drafts = {}; // payment id -> {message, token, units} typed but not sent
+const renderPays = list => {
+  $('payCount').textContent = list.length
+    ? `${list.filter(p => p.status === 'pending').length} pending · ${list.length} total`
+    : 'No payments yet';
+  const box = $('pays');
+  const focused = document.activeElement?.dataset?.pay;
+  box.innerHTML = '';
+  for (const p of list) {
+    const d = drafts[p.id] || (drafts[p.id] = {message: '', token: '', units: ''});
+    const el = document.createElement('div');
+    el.className = `pay ${p.status}`;
+    const hooks = p.webhooks.map(w => `<div><span class="${w.ok ? 'ok-text' : 'bad-text'}">${w.ok ? '\u2713' : '\u2717'} ${escapeHtml(w.status)}</span> <code>${escapeHtml(w.target)}${escapeHtml(w.path)}</code>${w.note ? ` <span class="meta">(${escapeHtml(w.note)})</span>` : ''}</div>`).join('');
+    el.innerHTML = `
+      <div class="top">
+        <span class="pill ${p.status}">${p.status}</span>
+        <span class="amount">${p.amount != null ? `${escapeHtml(p.currency || '')} ${Number(p.amount).toLocaleString()}` : 'Amount set at validation'}</span>
+        <span>${escapeHtml(p.kindLabel)}</span>
+        <span class="meta">${new Date(p.createdAt).toLocaleTimeString()}${p.autoCompletesAt && p.status === 'pending' ? ' · completes automatically' : ''}</span>
+      </div>
+      <div class="meta">${p.msisdn ? `${escapeHtml(p.msisdn)} · ` : ''}${p.description ? `${escapeHtml(p.description)} · ` : ''}ref <code>${escapeHtml(p.customerReference || '-')}</code> · Relworx ref <code>${escapeHtml(p.internalReference)}</code></div>
+      ${p.paymentUrl ? `<div class="meta">Checkout page: <a href="${escapeHtml(p.paymentUrl)}" target="_blank">${escapeHtml(p.paymentUrl)}</a></div>` : ''}
+      ${p.status === 'pending' ? `
+        <div class="actions">
+          <input type="text" data-pay="${p.id}-message" placeholder="Message (optional)" value="${escapeHtml(d.message)}">
+          ${p.kind === 'product' ? `<input type="text" data-pay="${p.id}-token" placeholder="Token (optional)" value="${escapeHtml(d.token)}" style="max-width:180px"><input type="text" data-pay="${p.id}-units" placeholder="Units (optional)" value="${escapeHtml(d.units)}" style="max-width:110px">` : ''}
+          <button class="primary" data-act="success">Success</button>
+          <button class="danger" data-act="failed">Fail</button>
+        </div>` : `
+        <div class="meta" style="margin-top:6px">${escapeHtml(p.message || '')}${p.token ? ` · token <code>${escapeHtml(p.token)}</code> · units ${escapeHtml(p.units)}` : ''}</div>
+        <div class="hooks">${hooks || '<span class="meta">No webhook sent</span>'}</div>
+        <div class="actions"><button data-act="resend">Resend webhook</button></div>`}`;
+    el.querySelectorAll('input[data-pay]').forEach(input => {
+      const field = input.dataset.pay.split('-').pop();
+      input.addEventListener('input', () => { d[field] = input.value; });
+    });
+    el.querySelectorAll('button[data-act]').forEach(button => button.addEventListener('click', async () => {
+      button.disabled = true;
+      const act = button.dataset.act;
+      const path = act === 'resend' ? 'resend' : 'complete';
+      const body = act === 'resend' ? {} : {status: act, message: d.message, token: d.token, units: d.units};
+      try { await api(`/__mock/api/payments/${p.id}/${path}`, {method: 'POST', body: JSON.stringify(body)}); } catch { flashSaved('Failed'); }
+      refreshPays();
+    }));
+    box.appendChild(el);
+  }
+  if (focused) { const again = box.querySelector(`[data-pay="${focused}"]`); if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); } }
+};
+
+let lastPaysJson = '';
+const refreshPays = async () => {
+  try {
+    const {payments} = await api('/__mock/api/payments');
+    const json = JSON.stringify(payments);
+    if (json !== lastPaysJson) { lastPaysJson = json; renderPays(payments); }
+  } catch { /* server restarting */ }
+};
+const pollPays = () => refreshPays().finally(() => setTimeout(pollPays, 2000));
+
+const _renderAll = renderAll;
+renderAll = () => { _renderAll(); renderPaySettings(); };
+
+load().then(() => { renderPaySettings(); pollLogs(); pollPays(); });
 </script>
 </body>
 </html>
