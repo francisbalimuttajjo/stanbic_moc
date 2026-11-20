@@ -291,6 +291,164 @@ const ENDPOINTS = [
   },
 ];
 
+
+// ---- Contracts: what Stanbic expects (request) and what vaulit-web expects back ----
+// Shown on the settings page under each endpoint. Taken from vaulit-web's
+// app/services/stanbic_bank_services/* and the code that reads their responses.
+
+const STD_HEADERS = [
+  ['Authorization', 'Bearer <token from /ug/oauth2/token>'],
+  ['X-IBM-Client-Id', 'credentials.stanbic[:user_id]'],
+  ['X-IBM-Client-Secret', 'credentials.stanbic[:secret]'],
+  ['X-signature', 'RSA-SHA256 signature of the JSON body (credentials.stanbic[:private_key])'],
+  ['X-channel-id', 'RELW'],
+  ['Content-Type', 'application/json'],
+];
+const PPC_HEADERS = [...STD_HEADERS, ['X-country-code', 'UG'], ['X-req-timestamp', 'ISO time, e.g. 2026-11-20T09:15:00.000Z']];
+
+const CONTRACTS = {
+  token: {
+    service: 'StanbicBankServices::TokenManager',
+    headers: [['Authorization', 'Basic base64(user_id:secret)'], ['Content-Type', 'application/x-www-form-urlencoded']],
+    fields: [['grant_type', 'client_credentials', ''], ['scope', 'Create', '']],
+    reads: [['access_token', 'Sent as the Bearer token on every other call'], ['expires_in', 'Seconds; the token is cached in Rails.cache until 30s before expiry']],
+    failure: 'Any non-2xx: the token is nil, so the next call goes out without a valid token and Stanbic rejects it.',
+  },
+  nira: {
+    service: 'StanbicBankServices::NinValidation',
+    headers: STD_HEADERS,
+    fields: [
+      ['nationalId', 'CM12345678ABCD', 'request.nin'],
+      ['documentId', '012345678', 'request.document_id (NIN card number)'],
+      ['givenNames', 'MIKE', 'request.given_name'],
+      ['surname', 'MATOVU', 'request.surname'],
+      ['dateOfBirth', '15/06/1992', 'request.date_of_birth as dd/mm/yyyy'],
+    ],
+    reads: [
+      ['verifyPersonInformationResponse.return.transactionStatus.transactionStatus', '"Error" = failure (message from .error.message); anything else = success'],
+      ['verifyPersonInformationResponse.return.matchingStatus', 'Shown to the app as details_match (true/"Y"/"MATCH" = matched). The API does NOT block on it'],
+      ['verifyPersonInformationResponse.return.cardStatus', 'Shown to the app as nin_card_status'],
+    ],
+    failure: 'Non-2xx, or transactionStatus "Error" → details step fails with the message. A non-JSON 200 is treated as success.',
+  },
+  account_lookup: {
+    service: 'StanbicBankServices::AccountInquiry',
+    headers: STD_HEADERS,
+    fields: [
+      ['requestId', '20 random characters', ''],
+      ['accountId', '9030012345678', 'request.account_number'],
+      ['timeStamp', '2026-11-20T09:15:00.000Z', ''],
+    ],
+    reads: [
+      ['status', '"A" required by confirm_verification (account_verified?)'],
+      ['name', 'Must match the given name + surname the user typed (NameMatcher) for confirm_verification'],
+      ['customerId', 'The CIF number; required by the KYC upload (submit address)'],
+      ['accountId, branchCode, accountType, currency', 'Stored only (account_lookup_response)'],
+    ],
+    failure: 'Non-2xx, or {"message": "Request Failed", "moreInformation": "..."} → details step fails with moreInformation.',
+  },
+  screening: {
+    service: 'StanbicBankServices::EntityScreening',
+    headers: STD_HEADERS,
+    fields: [
+      ['identifier', 'CM12345678ABCD', 'request.nin'],
+      ['firstName', 'MIKE', 'request.given_name'],
+      ['lastName', 'MATOVU', 'request.surname'],
+      ['nationality', 'from the latest KYC', ''],
+      ['residence', 'UG', ''],
+      ['birthDate', '1992-06-15', ''],
+      ['clientType / occupationCategory / bankProduct', 'A3A / salaried_other / Transactional', 'fixed'],
+    ],
+    reads: [
+      ['result', '"FlaggedAsRisky" shows as entity_screening_flagged (admin only). Never blocks'],
+      ['assessmentId', 'Shown on the admin page'],
+    ],
+    failure: 'Errors are ignored; the flow carries on.',
+  },
+  kyc_upload: {
+    service: 'StanbicBankServices::DsxKycFileUpload',
+    headers: STD_HEADERS,
+    fields: [
+      ['documentContent', 'base64 PDF (KycPdfGenerator)', ''],
+      ['mimeType / documentType', 'application/pdf / pdf', ''],
+      ['documentName', 'file name', ''],
+      ['dateActioned', 'ISO time', ''],
+      ['cifNumber', 'CIF247565', 'account_lookup_response.customerId'],
+    ],
+    reads: [['(whole body)', 'Stored as kyc_upload_response; only the HTTP status matters']],
+    failure: 'Non-2xx → address step fails: "KYC document upload failed. Please try again."',
+  },
+  registration: {
+    service: 'StanbicBankServices::PrepaidCardInstantRegistration (payload from CardRegistrationPayloadBuilder)',
+    headers: PPC_HEADERS,
+    fields: [
+      ['requestId', '20 random characters', ''],
+      ['channel', 'RELWORX', ''],
+      ['currencyCode', 'UGX', ''],
+      ['firstName / lastName / preferredName', 'from KYC / the request', ''],
+      ['address1 / address2 / address3 / city', 'from submit address', ''],
+      ['country / stateRegion', 'UG / 101', ''],
+      ['postalCode', '(empty: reads a field the lookup never returns)', 'known gap'],
+      ['birthDate', 'from KYC', ''],
+      ['idType / idValue', 'document type and number from KYC', ''],
+      ['countryCode / mobilePhoneNumber / emailAddress', 'from the user', ''],
+      ['accountSource', 'OTHER', ''],
+    ],
+    reads: [
+      ['registrationAccountId', 'Becomes the Vaulit card\'s account_id'],
+      ['registrationLast4Digits', 'Becomes the card\'s last four digits'],
+      ['registrationPassCode', 'Stored on the request (unencrypted)'],
+    ],
+    failure: 'Non-2xx → request becomes "failed" (can retry). A timeout or connection error is not caught: the request stays in "registering".',
+  },
+  customer_data: {
+    service: 'StanbicBankServices::CustomerData',
+    headers: STD_HEADERS,
+    fields: [
+      ['accountId', '5555123', 'the card ID the user typed'],
+      ['currency', 'UGX', ''],
+      ['requestId', '20 random characters', ''],
+      ['channel', 'RELWORX', ''],
+    ],
+    reads: [
+      ['cardStatus', '"AC" required, otherwise "This card has not been activated yet"'],
+      ['idValue', 'Compared with the user\'s KYC document number (if both present)'],
+      ['firstName / lastName', 'Otherwise compared with the KYC or profile names'],
+      ['l4', 'Becomes the card\'s last four digits. NOT compared with the digits typed'],
+    ],
+    failure: 'Non-2xx or "Request Failed" → "Card not found. Check your card ID and try again."',
+  },
+  wallet_to_card: {
+    service: 'StanbicBankServices::WalletToCardTransfer',
+    headers: PPC_HEADERS,
+    fields: [
+      ['accountId', 'card account ID', ''],
+      ['transferAmount', '50000', ''],
+      ['currencyCode', 'UGX', ''],
+      ['referenceMemo', 'CardLoad', ''],
+      ['mobilePhoneNumber / last4Digits', 'from the user\'s card', ''],
+      ['transactionIdAccount', 'ToCardAccount', ''],
+      ['requestId / channel', '20 random characters / RELWORX', ''],
+    ],
+    reads: [['(whole body)', 'Returned as is; nothing in the API calls this yet']],
+    failure: 'Non-2xx → failure with the body as the error.',
+  },
+  card_to_wallet: {
+    service: 'StanbicBankServices::CardToWalletTransfer',
+    headers: PPC_HEADERS,
+    fields: [['(caller\'s details)', 'e.g. accountId, transferAmount', 'passed through as given'], ['requestId / channel', '20 random characters / RELWORX', 'added']],
+    reads: [['(whole body)', 'Returned as is; nothing in the API calls this yet']],
+    failure: 'Non-2xx → failure with the body as the error.',
+  },
+  card_status: {
+    service: 'StanbicBankServices::PrepaidCardStatusUpdate',
+    headers: PPC_HEADERS,
+    fields: [['(caller\'s details)', 'e.g. accountId, cardStatus "BL"', 'passed through as given'], ['requestId / channel', '20 random characters / RELWORX', 'added']],
+    reads: [['(whole body)', 'Returned as is; nothing in the API calls this yet']],
+    failure: 'Non-2xx → failure with the body as the error.',
+  },
+};
+
 const BY_ROUTE = Object.fromEntries(ENDPOINTS.map(e => [`${e.method} ${e.path}`, e]));
 const BY_KEY = Object.fromEntries(ENDPOINTS.map(e => [e.key, e]));
 
@@ -438,6 +596,9 @@ const handleAdmin = (req, res, url, body) => {
         endpoints: ENDPOINTS.map(e => ({
           key: e.key, name: e.name, method: e.method, path: e.path, usedBy: e.usedBy, autoHelp: e.autoHelp,
           scenarios: Object.entries(e.scenarios).map(([key, s]) => ({key, label: s.label})),
+          contract: CONTRACTS[e.key],
+          happySample: e.scenarios.happy.run(sampleBody, config)[1],
+          lastRequest: [...logs].reverse().find(l => l.path === e.path)?.request || null,
         })),
       });
     case 'PUT /__mock/api/config':

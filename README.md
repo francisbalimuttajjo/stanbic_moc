@@ -35,6 +35,7 @@ Each Stanbic endpoint has a card with a **response** dropdown and a **delay**:
 - Changes save automatically and apply to the next request. Cards you've changed get an amber border.
 - **Delay**: per endpoint, or **Delay for every response** in the header. A per-endpoint delay overrides the global one.
 - **Requests** panel: every call the API makes, live. Click one to see the request and response.
+- **What's exchanged** (on each endpoint): the headers and body fields Stanbic expects, which the Vaulit API sends; the last request your API actually sent; the response fields the Vaulit API reads and what it does with each; what counts as a failure; and a sample happy-path response. Link straight to one with `/__mock#<endpoint>`, e.g. `/__mock#nira`.
 - **Everything happy path** sets every endpoint back to the default. **Reset to defaults** also resets the card holder and custom responses.
 - **Export / Import** saves or loads all the settings as a JSON file (useful on the deployed mock, which forgets settings when it restarts).
 
@@ -131,4 +132,3 @@ Delete it to start from the defaults. An older `config.json` is converted automa
 
 Environment variables: `PORT` (default 4010), `MOCK_ADMIN_TOKEN` (password for the settings
 page; none locally), `MOCK_CONFIG_PATH` (where settings are saved).
-# stanbic_moc

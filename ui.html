@@ -23,7 +23,7 @@
   main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 20px; padding: 20px 24px; }
   @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 4px 0 10px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; align-items: start; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
   .card.changed { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber) inset; }
   .card h3 { margin: 0; font-size: 15px; }
@@ -43,6 +43,17 @@
   button.primary { background: var(--green); border-color: var(--green); color: #fff; }
   button.danger { color: var(--red); }
   header button { background: transparent; color: #fff; border-color: #3d5a55; }
+  .info-btn { margin-top: 10px; font-size: 12.5px; padding: 5px 10px; }
+  .info { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .info h4 { margin: 10px 0 6px; font-size: 12.5px; }
+  .info h4 span { font-weight: 400; color: var(--muted); }
+  .info table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .info td { border-top: 1px solid var(--line); padding: 5px 6px 5px 0; vertical-align: top; }
+  .info td:first-child { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; width: 42%; word-break: break-word; }
+  .info .note { color: var(--muted); }
+  .info pre { background: #f6f8f7; border-radius: 8px; padding: 8px; font-size: 11.5px; overflow: auto; max-height: 220px; margin: 0; }
+  .info .fail { background: var(--red-soft); color: var(--red); border-radius: 8px; padding: 7px 9px; font-size: 12px; margin-top: 8px; }
+  .info .svc { font-size: 11.5px; color: var(--muted); font-family: ui-monospace, Menlo, monospace; word-break: break-word; }
   .holder { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
   .holder input { width: 100%; }
   .log { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; position: sticky; top: 76px; }
@@ -154,7 +165,9 @@ const renderEndpoints = () => {
       <div data-role="custom" hidden>
         <div class="row"><label>HTTP status</label><input data-role="status" type="number" min="100" max="599" style="width:90px"></div>
         <textarea data-role="body" spellcheck="false"></textarea>
-      </div>`;
+      </div>
+      <button class="info-btn" data-role="info-btn">What's exchanged ▾</button>
+      <div class="info" data-role="info" hidden></div>`;
     const mode = card.querySelector('[data-role=mode]');
     const delay = card.querySelector('[data-role=delay]');
     const help = card.querySelector('[data-role=help]');
@@ -188,8 +201,44 @@ const renderEndpoints = () => {
       try { JSON.parse(body.value); body.classList.remove('invalid'); } catch { body.classList.add('invalid'); }
       save();
     });
+    const infoBtn = card.querySelector('[data-role=info-btn]');
+    const info = card.querySelector('[data-role=info]');
+    infoBtn.addEventListener('click', () => {
+      info.hidden = !info.hidden;
+      infoBtn.textContent = info.hidden ? "What's exchanged \u25be" : "Hide details \u25b4";
+      if (!info.hidden) info.innerHTML = renderContract(endpoint);
+    });
+    infoPanels[endpoint.path] = () => { if (!info.hidden) info.innerHTML = renderContract(endpoint); };
+    card.id = endpoint.key;
+    if (location.hash === `#${endpoint.key}`) setTimeout(() => { infoBtn.click(); card.scrollIntoView(); }, 0);
     container.appendChild(card);
   }
+};
+
+const infoPanels = {};
+const lastRequests = {};
+
+const rows = list => `<table>${list.map(([name, value, note]) =>
+  `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(value)}${note ? ` <span class="note">(${escapeHtml(note)})</span>` : ''}</td></tr>`).join('')}</table>`;
+
+const renderContract = endpoint => {
+  const c = endpoint.contract;
+  if (!c) return '<div class="note">No details for this endpoint.</div>';
+  const last = lastRequests[endpoint.path] || endpoint.lastRequest;
+  return `
+    <div class="svc">${escapeHtml(c.service)}</div>
+    <h4>Stanbic expects <span>\u00b7 what the Vaulit API sends</span></h4>
+    <div class="note" style="font-size:12px;margin-bottom:4px">Headers</div>
+    ${rows(c.headers)}
+    <div class="note" style="font-size:12px;margin:8px 0 4px">Body</div>
+    ${rows(c.fields)}
+    <h4>Last request received <span>\u00b7 from your API</span></h4>
+    ${last ? `<pre>${escapeHtml(JSON.stringify(last, null, 2))}</pre>` : '<div class="note" style="font-size:12px">None yet. Run this step in the app.</div>'}
+    <h4>Vaulit API expects back <span>\u00b7 fields it reads</span></h4>
+    ${rows(c.reads)}
+    <div class="fail">${escapeHtml(c.failure)}</div>
+    <h4>Happy-path response <span>\u00b7 sample</span></h4>
+    <pre>${escapeHtml(JSON.stringify(endpoint.happySample, null, 2))}</pre>`;
 };
 
 const renderHolder = () => {
@@ -216,6 +265,8 @@ const addLogs = entries => {
   list.querySelector('.empty')?.remove();
   for (const entry of entries) {
     lastLogId = Math.max(lastLogId, entry.id);
+    lastRequests[entry.path] = entry.request;
+    infoPanels[entry.path]?.();
     const el = document.createElement('div');
     el.className = 'entry';
     const ok = entry.status < 400 && !(entry.response && entry.response.message === 'Request Failed');
